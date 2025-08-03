@@ -1,0 +1,10 @@
+[package]
+name = "in_place_once_cell"
+version = "0.1.0"
+edition = "2024"
+authors = ["KillyBOT"]
+
+description = "Single mutation cells."
+readme = "README.md"
+
+[dependencies]
