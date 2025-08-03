@@ -1,9 +1,12 @@
 use std::cell::{Cell, UnsafeCell};
+use std::fmt;
+
+// TODO: Add more documentation
 
 /// A cell that can only be mutated once.
 pub struct InPlaceOnceCell<T> {
     is_mutated: Cell<bool>,
-    inner: UnsafeCell<T>,
+    value: UnsafeCell<T>,
 }
 
 impl<T> InPlaceOnceCell<T> {
@@ -13,7 +16,7 @@ impl<T> InPlaceOnceCell<T> {
     pub const fn new(value: T) -> Self {
         Self {
             is_mutated: Cell::new(false),
-            inner: UnsafeCell::new(value),
+            value: UnsafeCell::new(value),
         }
     }
 
@@ -29,7 +32,7 @@ impl<T> InPlaceOnceCell<T> {
     #[inline]
     unsafe fn get_unchecked(&self) -> &T {
         debug_assert!(self.is_mutated());
-        unsafe { &*self.inner.get() }
+        unsafe { &*self.value.get() }
     }
 
     /// # Safety
@@ -38,7 +41,7 @@ impl<T> InPlaceOnceCell<T> {
     #[inline]
     unsafe fn get_mut_unchecked(&mut self) -> &mut T {
         debug_assert!(self.is_mutated());
-        self.inner.get_mut()
+        self.value.get_mut()
     }
 
     /// Gets the reference to the underlying value.
@@ -47,7 +50,7 @@ impl<T> InPlaceOnceCell<T> {
     #[inline]
     pub fn get(&self) -> Option<&T> {
         if self.is_mutated() {
-            // SAFETY: `self.is_initialized() == true`, so always safe
+            // SAFETY: `self.is_initialized() == true`, so always safe.
             Some(unsafe { self.get_unchecked() })
         } else {
             None
@@ -59,7 +62,7 @@ impl<T> InPlaceOnceCell<T> {
     /// Returns `None` if the cell is not mutated.
     pub fn get_mut(&mut self) -> Option<&mut T> {
         if self.is_mutated() {
-            Some(self.inner.get_mut())
+            Some(self.value.get_mut())
         } else {
             None
         }
@@ -150,8 +153,12 @@ impl<T> InPlaceOnceCell<T> {
     {
         // SAFETY: `try_init` is only called in `get_*_or_try_mutate`, meaning `self.inner` will
         // always be non-null and not mutated.
-        let inner_mut_ref = unsafe { &mut *self.inner.get() };
-        f(inner_mut_ref)
+        let inner_mut_ref = unsafe { &mut *self.value.get() };
+        f(inner_mut_ref)?;
+
+        self.is_mutated.set(true);
+
+        Ok(())
     }
 
     /// Consumes the cell, returning the wrapped value. Note that this occurs even when the cell
@@ -159,9 +166,59 @@ impl<T> InPlaceOnceCell<T> {
     #[inline]
     pub fn into_inner(self) -> T {
         // TODO: Make this a `pub const fn`.
-        self.inner.into_inner()
+        self.value.into_inner()
     }
 }
 
-// `UnsafeCell` is not `Sync`, so neither is this. Technically this isn't needed.
-// impl<T> !Sync for InPlaceOnceCell<T> {}
+impl<T: Default> Default for InPlaceOnceCell<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for InPlaceOnceCell<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_tuple("InPlaceOnceCell");
+        match self.get() {
+            Some(v) => d.field(v),
+            // SAFETY: `get_unchecked` always returns a valid memory location, it's just marked as
+            // `unsafe` because it is not initialized. Still, we may want to see its uninitialized
+            // value.
+            None => d.field(&format_args!("{:?} <untouched>", unsafe {
+                self.get_unchecked()
+            })),
+        };
+
+        d.finish()
+    }
+}
+
+impl<T: Clone> Clone for InPlaceOnceCell<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            is_mutated: Cell::new(self.is_mutated()),
+            // SAFETY: `get_unchecked` always points to "valid" data, so we can clone it even if
+            // the cell never mutated
+            value: UnsafeCell::new(unsafe { self.get_unchecked() }.clone()),
+        }
+    }
+}
+
+impl<T: PartialEq> PartialEq for InPlaceOnceCell<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl<T: Eq> Eq for InPlaceOnceCell<T> {}
+
+impl<T> From<T> for InPlaceOnceCell<T> {
+    /// Creates a new `InPlaceOnceCell<T>` containing `value`. This new cell is not yet mutated.
+    #[inline]
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
