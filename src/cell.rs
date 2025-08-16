@@ -183,14 +183,8 @@ impl<T: fmt::Debug> fmt::Debug for InPlaceOnceCell<T> {
         let mut d = f.debug_tuple("InPlaceOnceCell");
         match self.get() {
             Some(v) => d.field(v),
-            // SAFETY: `get_unchecked` always returns a valid memory location, it's just marked as
-            // `unsafe` because it is not initialized. Still, we may want to see its uninitialized
-            // value.
-            None => d.field(&format_args!("{:?} <untouched>", unsafe {
-                self.get_unchecked()
-            })),
+            None => d.field(&format_args!("<untouched>")),
         };
-
         d.finish()
     }
 }
