@@ -3,10 +3,13 @@ use std::fmt;
 
 // TODO: Add more documentation
 
+// TODO: Once `#![feature(never_type)]` is stabilized, remove this
+enum Never {}
+
 /// A cell that can only be mutated once.
 pub struct InPlaceOnceCell<T> {
-    is_mutated: Cell<bool>,
     value: UnsafeCell<T>,
+    is_mutated: Cell<bool>,
 }
 
 impl<T> InPlaceOnceCell<T> {
@@ -15,8 +18,8 @@ impl<T> InPlaceOnceCell<T> {
     #[must_use]
     pub const fn new(value: T) -> Self {
         Self {
-            is_mutated: Cell::new(false),
             value: UnsafeCell::new(value),
+            is_mutated: Cell::new(false),
         }
     }
 
@@ -83,10 +86,9 @@ impl<T> InPlaceOnceCell<T> {
     {
         match self.get_or_try_mutate(|val: &mut T| {
             f(val);
-            Ok::<(), ()>(())
+            Ok::<(), Never>(())
         }) {
             Ok(..) => {}
-            Err(..) => unreachable!(),
         }
 
         // SAFETY: the previous code is guaranteed to mutate the cell
@@ -100,10 +102,9 @@ impl<T> InPlaceOnceCell<T> {
     {
         match self.get_or_try_mutate(|val: &mut T| {
             f(val);
-            Ok::<(), ()>(())
+            Ok::<(), Never>(())
         }) {
             Ok(..) => {}
-            Err(..) => unreachable!(),
         }
 
         // SAFETY: the previous code is guaranteed to mutate the cell
@@ -152,7 +153,7 @@ impl<T> InPlaceOnceCell<T> {
         F: FnOnce(&mut T) -> Result<(), E>,
     {
         // SAFETY: `try_init` is only called in `get_*_or_try_mutate`, meaning `self.inner` will
-        // always be non-null and not mutated.
+        // always contain a valid non-null value that has not yet been mutated.
         let inner_mut_ref = unsafe { &mut *self.value.get() };
         f(inner_mut_ref)?;
 
@@ -191,18 +192,6 @@ impl<T: fmt::Debug> fmt::Debug for InPlaceOnceCell<T> {
         };
 
         d.finish()
-    }
-}
-
-impl<T: Clone> Clone for InPlaceOnceCell<T> {
-    #[inline]
-    fn clone(&self) -> Self {
-        Self {
-            is_mutated: Cell::new(self.is_mutated()),
-            // SAFETY: `get_unchecked` always points to "valid" data, so we can clone it even if
-            // the cell never mutated
-            value: UnsafeCell::new(unsafe { self.get_unchecked() }.clone()),
-        }
     }
 }
 
